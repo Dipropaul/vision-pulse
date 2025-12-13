@@ -1,8 +1,8 @@
 from pathlib import Path
 from openai import AsyncOpenAI
 
-from backend.config.settings import settings
-from backend.config.presets import NARRATION_VOICES
+from config.settings import settings
+from config.presets import NARRATION_VOICES
 
 class AudioService:
     """Service for generating narration audio using OpenAI TTS"""

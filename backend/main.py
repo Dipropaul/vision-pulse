@@ -1,11 +1,16 @@
+import sys
+from pathlib import Path
+
+# Add parent directory to path to make imports work
+sys.path.insert(0, str(Path(__file__).parent))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 
-from backend.api.routes import router
-from backend.models.database import init_db
-from backend.config.settings import settings
+from api.routes import router
+from models.database import init_db
+from config.settings import settings
 
 # Initialize database
 init_db()
@@ -20,7 +25,12 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000", 
+        "http://127.0.0.1:3000",
+        "http://localhost:3001", 
+        "http://127.0.0.1:3001"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -51,8 +61,11 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
+    print("Starting VisionPulse API Server...")
+    print(f"Server will run on http://{settings.API_HOST}:{settings.API_PORT}")
+    print(f"API Documentation: http://{settings.API_HOST}:{settings.API_PORT}/docs")
     uvicorn.run(
-        "backend.main:app",
+        "main:app",  # Fixed: use module name relative to current directory
         host=settings.API_HOST,
         port=settings.API_PORT,
         reload=settings.API_RELOAD

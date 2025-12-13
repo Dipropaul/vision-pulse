@@ -4,7 +4,7 @@ from typing import List
 from openai import AsyncOpenAI
 import httpx
 
-from backend.config.settings import settings
+from config.settings import settings
 
 class ImageService:
     """Service for generating images using DALL-E 3"""

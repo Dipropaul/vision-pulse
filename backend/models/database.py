@@ -4,7 +4,7 @@ from sqlalchemy.orm import sessionmaker
 from datetime import datetime
 import uuid
 
-from backend.config.settings import settings
+from config.settings import settings
 
 Base = declarative_base()
 engine = create_engine(settings.DATABASE_URL, connect_args={"check_same_thread": False})

@@ -15,6 +15,8 @@ export default function CreateVideoModal({ onClose, onSuccess }: CreateVideoModa
     script: '',
     style: '',
     voice: '',
+    size: '1280x720',
+    duration: 8,
     keywords: [],
     negative_keywords: [],
   });
@@ -205,6 +207,43 @@ export default function CreateVideoModal({ onClose, onSuccess }: CreateVideoModa
                   <div className="text-gray-400 text-xs mt-1">{voice.description}</div>
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Video Settings */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Resolution/Size */}
+            <div>
+              <label className="block text-white font-medium mb-2">
+                Resolution *
+              </label>
+              <select
+                value={formData.size}
+                onChange={(e) => setFormData({ ...formData, size: e.target.value })}
+                className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-purple-500"
+              >
+                <option value="1280x720">1280x720 (HD Landscape)</option>
+                <option value="720x1280">720x1280 (HD Portrait)</option>
+                <option value="1920x1080">1920x1080 (Full HD)</option>
+                <option value="1024x1792">1024x1792 (Vertical)</option>
+                <option value="1792x1024">1792x1024 (Horizontal)</option>
+              </select>
+            </div>
+
+            {/* Duration */}
+            <div>
+              <label className="block text-white font-medium mb-2">
+                Duration (seconds) *
+              </label>
+              <select
+                value={formData.duration}
+                onChange={(e) => setFormData({ ...formData, duration: parseInt(e.target.value) })}
+                className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:border-purple-500"
+              >
+                <option value="4">4 seconds</option>
+                <option value="8">8 seconds</option>
+                <option value="12">12 seconds</option>
+              </select>
             </div>
           </div>
 

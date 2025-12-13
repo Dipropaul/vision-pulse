@@ -3,15 +3,15 @@ from sqlalchemy.orm import Session
 from typing import List
 import uuid
 
-from backend.api.schemas import (
+from api.schemas import (
     VideoCreateRequest, 
     VideoResponse, 
     StyleResponse, 
     VoiceResponse
 )
-from backend.models.database import get_db, Video
-from backend.config.presets import VISUAL_STYLES, NARRATION_VOICES
-from backend.workflows.video_workflow import VideoGenerationWorkflow, VideoGenerationState
+from models.database import get_db, Video
+from config.presets import VISUAL_STYLES, NARRATION_VOICES
+from workflows.video_workflow import VideoGenerationWorkflow, VideoGenerationState
 import asyncio
 
 router = APIRouter(prefix="/api", tags=["videos"])
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api", tags=["videos"])
 # Initialize workflow
 workflow = VideoGenerationWorkflow()
 
-async def process_video_generation(video_id: str, db_session: Session):
+async def process_video_generation(video_id: str, size: str, duration: int, db_session: Session):
     """Background task to process video generation"""
     db = next(get_db())
     
@@ -39,13 +39,16 @@ async def process_video_generation(video_id: str, db_session: Session):
             "script": video.script,
             "style": video.style,
             "voice": video.voice,
+            "size": size,
             "keywords": video.keywords or [],
             "negative_keywords": video.negative_keywords or [],
             "prompts": [],
-            "image_urls": [],
+            "best_prompt": "",
             "image_paths": [],
             "audio_path": "",
             "video_path": "",
+            "duration": duration,
+            "narration_text": None,
             "error": None,
             "current_step": "initializing"
         }
@@ -60,11 +63,11 @@ async def process_video_generation(video_id: str, db_session: Session):
             video.error_message = result["error"]
         else:
             video.status = "completed"
-            video.prompts = result["prompts"]
-            video.image_paths = result["image_paths"]
-            video.audio_path = result["audio_path"]
+            video.prompts = result.get("prompts")
+            video.image_paths = result.get("image_paths")
+            video.audio_path = result.get("audio_path")
             video.video_path = result["video_path"]
-            video.duration = result.get("duration")  # Add duration
+            video.duration = result.get("duration")
         
         db.commit()
         
@@ -111,7 +114,12 @@ async def create_video(
     
     # Start background processing - create task directly
     import asyncio
-    asyncio.create_task(process_video_generation(video.id, db))
+    asyncio.create_task(process_video_generation(
+        video.id, 
+        request.size or "1280x720",
+        request.duration or 8,
+        db
+    ))
     
     return VideoResponse(**video.to_dict())
 

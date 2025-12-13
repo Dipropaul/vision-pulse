@@ -1,15 +1,21 @@
 from typing import TypedDict, List, Optional
-from langgraph.graph import StateGraph, END
-from langchain_openai import ChatOpenAI, OpenAI
-from langchain_core.messages import HumanMessage
 import json
 import asyncio
 
-from backend.config.settings import settings
-from backend.config.presets import VISUAL_STYLES
-from backend.services.image_service import ImageService
-from backend.services.audio_service import AudioService
-from backend.services.video_service import VideoService
+from config.settings import settings
+from config.presets import VISUAL_STYLES
+from services.sora_service import SoraService
+from services.image_service import ImageService
+from services.audio_service import AudioService
+
+# Try to import langchain, but work without it if not available
+try:
+    from langchain_openai import ChatOpenAI
+    from langchain_core.messages import HumanMessage
+    USE_LANGCHAIN = True
+except ImportError:
+    USE_LANGCHAIN = False
+    print("Warning: LangChain not available, using direct OpenAI API")
 
 class VideoGenerationState(TypedDict):
     """State for the video generation workflow"""
@@ -17,62 +23,48 @@ class VideoGenerationState(TypedDict):
     script: str
     style: str
     voice: str
+    size: str  # Video resolution (e.g., "1280x720")
     keywords: List[str]
     negative_keywords: List[str]
     prompts: List[str]
-    image_urls: List[str]
+    best_prompt: str  # Auto-selected best prompt
     image_paths: List[str]
     audio_path: str
     video_path: str
+    duration: Optional[int]
+    narration_text: Optional[str]
     error: Optional[str]
     current_step: str
 
 class VideoGenerationWorkflow:
     """
-    LangGraph Sequential Workflow for Video Generation
+    Video Generation Workflow using OpenAI Sora API with DALL-E reference images
     
     Steps:
     1. Generate prompts from script
-    2. Generate images from prompts
-    3. Generate narration audio
-    4. Assemble video
+    2. Generate reference images with DALL-E
+    3. Generate audio narration with selected voice
+    4. Generate video using Sora with image reference
     """
     
     def __init__(self):
-        self.llm = ChatOpenAI(
-            model=settings.OPENAI_MODEL,
-            api_key=settings.OPENAI_API_KEY,
-            temperature=0.7
-        )
+        # Use LangChain if available, otherwise would need direct API
+        if USE_LANGCHAIN:
+            self.llm = ChatOpenAI(
+                model=settings.OPENAI_MODEL,
+                api_key=settings.OPENAI_API_KEY,
+                temperature=0.7
+            )
+        else:
+            self.llm = None
+            
+        self.sora_service = SoraService()
         self.image_service = ImageService()
         self.audio_service = AudioService()
-        self.video_service = VideoService()
-        
-        # Build the graph
-        self.workflow = self._build_workflow()
-    
-    def _build_workflow(self) -> StateGraph:
-        """Build the LangGraph sequential workflow"""
-        workflow = StateGraph(VideoGenerationState)
-        
-        # Add nodes
-        workflow.add_node("generate_prompts", self.generate_prompts)
-        workflow.add_node("generate_images", self.generate_images)
-        workflow.add_node("generate_audio", self.generate_audio)
-        workflow.add_node("assemble_video", self.assemble_video)
-        
-        # Define the sequential flow
-        workflow.set_entry_point("generate_prompts")
-        workflow.add_edge("generate_prompts", "generate_images")
-        workflow.add_edge("generate_images", "generate_audio")
-        workflow.add_edge("generate_audio", "assemble_video")
-        workflow.add_edge("assemble_video", END)
-        
-        return workflow.compile()
     
     async def generate_prompts(self, state: VideoGenerationState) -> VideoGenerationState:
-        """Step 1: Generate 6-7 image prompts from the script"""
-        print(f"[{state['video_id']}] Step 1: Generating prompts...")
+        """Step 1: Generate 5-6 image prompts from script"""
+        print(f"[{state['video_id']}] Step 1: Generating 5-6 prompts...")
         
         try:
             script = state["script"]
@@ -86,9 +78,7 @@ class VideoGenerationWorkflow:
             keywords_text = ", ".join(keywords) if keywords else ""
             negative_text = ", ".join(negative_keywords) if negative_keywords else ""
             
-            prompt = f"""You are an expert at breaking down video scripts into visual scenes.
-
-Given the following script, generate exactly 6-7 detailed image prompts that will be used to create visuals for the video.
+            prompt = f"""Create 5-6 detailed image prompts that will serve as reference images for video generation.
 
 Script:
 {script}
@@ -98,34 +88,23 @@ Style Description: {style_info['description']}
 Additional Keywords: {keywords_text}
 Avoid: {negative_text}
 
-IMPORTANT SAFETY GUIDELINES:
-- Keep all prompts family-friendly and appropriate
-- Avoid any violent, disturbing, or controversial content
-- Focus on positive, educational, or entertaining visuals
-- Do not include real people, copyrighted characters, or brands
-- Keep prompts abstract and artistic
-
 Requirements:
-1. Create 6-7 prompts (one per scene)
-2. Each prompt should be highly detailed and vivid
-3. Include the visual style in each prompt
-4. Make prompts flow sequentially to tell the story
-5. Each prompt should be suitable for DALL-E 3 image generation
-6. Ensure all prompts follow OpenAI's content policy
+1. Create 5-6 key scene prompts (these will be reference images for Sora)
+2. Each prompt should capture a different critical visual moment
+3. Include lighting, mood, composition, and camera angle details
+4. Make prompts suitable for DALL-E 3
+5. Keep prompts family-friendly and diverse
 
-Return ONLY a JSON array of strings, like this:
-["prompt 1 here", "prompt 2 here", "prompt 3 here", ...]
+Return ONLY a JSON array of strings:
+["prompt 1", "prompt 2", "prompt 3", "prompt 4", "prompt 5", "prompt 6"]"""
 
-Do not include any other text or explanation."""
-
-            response = await self.llm.ainvoke(
-                [HumanMessage(content=prompt)]
-            )
+            if USE_LANGCHAIN and self.llm:
+                response = await self.llm.ainvoke([HumanMessage(content=prompt)])
+                content = response.content.strip()
+            else:
+                raise Exception("LangChain required for prompt generation")
             
-            # Parse the response
-            content = response.content.strip()
-            
-            # Remove markdown code blocks if present
+            # Parse response
             if content.startswith("```json"):
                 content = content[7:]
             elif content.startswith("```"):
@@ -134,8 +113,6 @@ Do not include any other text or explanation."""
                 content = content[:-3]
             
             prompts = json.loads(content.strip())
-            
-            # Add style suffix to each prompt
             prompts = [f"{p}, {style_suffix}" for p in prompts]
             
             state["prompts"] = prompts
@@ -148,9 +125,57 @@ Do not include any other text or explanation."""
         
         return state
     
+    async def select_best_prompt(self, state: VideoGenerationState) -> VideoGenerationState:
+        """Step 1.5: Auto-select the best prompt for video generation"""
+        print(f"[{state['video_id']}] Step 1.5: Selecting best prompt...")
+        
+        if state.get("error"):
+            return state
+        
+        try:
+            prompts = state["prompts"]
+            script = state["script"]
+            
+            selection_prompt = f"""Given these {len(prompts)} image prompts, select the ONE that would work best as the primary reference for video generation.
+
+Original Script:
+{script}
+
+Image Prompts:
+{chr(10).join(f"{i+1}. {p}" for i, p in enumerate(prompts))}
+
+Which prompt (#1-{len(prompts)}) best captures the essence and would be the strongest visual reference for the video? 
+Consider: visual impact, clarity, alignment with script, and video potential.
+
+Respond with ONLY the number (1-{len(prompts)})."""
+
+            if USE_LANGCHAIN and self.llm:
+                response = await self.llm.ainvoke([HumanMessage(content=selection_prompt)])
+                choice = response.content.strip()
+                # Extract number
+                import re
+                match = re.search(r'\d+', choice)
+                if match:
+                    index = int(match.group()) - 1
+                    if 0 <= index < len(prompts):
+                        state["best_prompt"] = prompts[index]
+                        print(f"[{state['video_id']}] Selected prompt #{index+1} as best")
+                    else:
+                        state["best_prompt"] = prompts[0]
+                else:
+                    state["best_prompt"] = prompts[0]
+            else:
+                state["best_prompt"] = prompts[0]
+            
+        except Exception as e:
+            print(f"[{state['video_id']}] Best prompt selection failed: {e}, using first prompt")
+            state["best_prompt"] = state["prompts"][0] if state["prompts"] else ""
+        
+        return state
+    
     async def generate_images(self, state: VideoGenerationState) -> VideoGenerationState:
-        """Step 2: Generate images using DALL-E 3"""
-        print(f"[{state['video_id']}] Step 2: Generating images...")
+        """Step 2: Generate reference images with DALL-E"""
+        print(f"[{state['video_id']}] Step 2: Generating reference images...")
         
         if state.get("error"):
             return state
@@ -166,7 +191,7 @@ Do not include any other text or explanation."""
             
             state["image_paths"] = image_paths
             state["current_step"] = "images_generated"
-            print(f"[{state['video_id']}] Generated {len(image_paths)} images")
+            print(f"[{state['video_id']}] Generated {len(image_paths)} reference images")
             
         except Exception as e:
             state["error"] = f"Image generation failed: {str(e)}"
@@ -174,27 +199,59 @@ Do not include any other text or explanation."""
         
         return state
     
+    async def extract_narration(self, state: VideoGenerationState) -> VideoGenerationState:
+        """Extract narration text from script"""
+        script = state["script"]
+        
+        if "narration:" in script.lower() or "—" in script or ":" in script:
+            extraction_prompt = f"""Extract ONLY the narration/voiceover text from this script.
+            
+Script:
+{script}
+
+Rules:
+1. Extract only text that should be spoken aloud
+2. Look for text after "narration:" markers or — dashes
+3. Ignore technical instructions
+4. Combine all narration into one flowing script
+5. Return ONLY the narration text"""
+            
+            try:
+                if USE_LANGCHAIN and self.llm:
+                    response = await self.llm.ainvoke([HumanMessage(content=extraction_prompt)])
+                    narration_text = response.content.strip().strip('"')
+                    state["narration_text"] = narration_text
+                else:
+                    state["narration_text"] = script
+            except Exception as e:
+                print(f"[{state['video_id']}] Narration extraction failed: {e}")
+                state["narration_text"] = script
+        else:
+            state["narration_text"] = script
+        
+        return state
+    
     async def generate_audio(self, state: VideoGenerationState) -> VideoGenerationState:
-        """Step 3: Generate narration audio using OpenAI TTS"""
+        """Step 3: Generate audio narration with selected voice"""
         print(f"[{state['video_id']}] Step 3: Generating audio narration...")
         
         if state.get("error"):
             return state
         
         try:
-            script = state["script"]
+            narration_text = state.get("narration_text", state["script"])
             voice = state["voice"]
             video_id = state["video_id"]
             
             audio_path = await self.audio_service.generate_narration(
-                text=script,
+                text=narration_text,
                 voice=voice,
                 video_id=video_id
             )
             
             state["audio_path"] = audio_path
             state["current_step"] = "audio_generated"
-            print(f"[{state['video_id']}] Generated audio: {audio_path}")
+            print(f"[{state['video_id']}] Generated audio with voice '{voice}': {audio_path}")
             
         except Exception as e:
             state["error"] = f"Audio generation failed: {str(e)}"
@@ -202,50 +259,103 @@ Do not include any other text or explanation."""
         
         return state
     
-    async def assemble_video(self, state: VideoGenerationState) -> VideoGenerationState:
-        """Step 4: Assemble images and audio into final video"""
-        print(f"[{state['video_id']}] Step 4: Assembling video...")
+    async def generate_video_with_sora(self, state: VideoGenerationState) -> VideoGenerationState:
+        """Step 4: Generate video using Sora with first 2 images as reference"""
+        print(f"[{state['video_id']}] Step 4: Generating video with Sora...")
         
         if state.get("error"):
             return state
         
         try:
-            image_paths = state["image_paths"]
-            audio_path = state["audio_path"]
+            best_prompt = state.get("best_prompt", state["script"])
+            style = state["style"]
+            size = state.get("size", "1280x720")  # Get size from state
+            duration = state.get("duration", 8)
             video_id = state["video_id"]
+            image_paths = state.get("image_paths", [])
             
-            result = await self.video_service.create_video(
-                image_paths=image_paths,
-                audio_path=audio_path,
-                video_id=video_id
+            style_info = VISUAL_STYLES.get(style, VISUAL_STYLES["realistic"])
+            
+            # Create video prompt using the best selected prompt
+            video_prompt = f"{best_prompt}\n\nStyle: {style_info['description']}"
+            
+            # Use first 2 images as reference if available
+            reference_images = []
+            if image_paths:
+                from pathlib import Path
+                # Take first 2 images
+                for img_url in image_paths[:2]:
+                    if img_url.startswith('/images/'):
+                        filename = Path(img_url).name
+                        img_path = str(settings.IMAGES_DIR / video_id / filename)
+                        reference_images.append(img_path)
+                
+                if reference_images:
+                    print(f"[{video_id}] Using {len(reference_images)} reference images")
+            
+            # Determine model
+            use_pro = getattr(settings, 'SORA_MODEL', 'sora-2-pro') == 'sora-2-pro'
+            
+            # Generate video with custom size from frontend
+            result = await self.sora_service.generate_video(
+                prompt=video_prompt,
+                duration=duration,
+                video_id=video_id,
+                size=size,  # Pass custom size
+                use_pro=use_pro,
+                reference_images=reference_images  # Pass multiple images
             )
             
             state["video_path"] = result["video_path"]
             state["duration"] = result["duration"]
             state["current_step"] = "completed"
-            print(f"[{state['video_id']}] Video completed: {result['video_path']} (duration: {result['duration']}s)")
+            print(f"[{video_id}] ✅ Video completed: {result['video_path']}")
             
         except Exception as e:
-            state["error"] = f"Video assembly failed: {str(e)}"
+            state["error"] = f"Sora video generation failed: {str(e)}"
             print(f"[{state['video_id']}] Error: {state['error']}")
         
         return state
     
     async def run(self, initial_state: VideoGenerationState) -> VideoGenerationState:
-        """Execute the workflow"""
-        print(f"[{initial_state['video_id']}] Starting video generation workflow...")
+        """Execute the complete workflow"""
+        print(f"[{initial_state['video_id']}] Starting enhanced Sora workflow...")
         
         try:
-            # Use ainvoke for async execution
-            result = await self.workflow.ainvoke(initial_state)
+            # Step 1: Generate 5-6 prompts
+            state = await self.generate_prompts(initial_state)
+            if state.get("error"):
+                return state
             
-            if result.get("error"):
-                print(f"[{initial_state['video_id']}] Workflow failed: {result['error']}")
+            # Step 1.5: Auto-select best prompt
+            state = await self.select_best_prompt(state)
+            
+            # Step 2: Generate reference images
+            state = await self.generate_images(state)
+            if state.get("error"):
+                return state
+            
+            # Step 2.5: Extract narration
+            state = await self.extract_narration(state)
+            
+            # Step 3: Generate audio narration with selected voice
+            state = await self.generate_audio(state)
+            if state.get("error"):
+                return state
+            
+            # Step 4: Generate video with Sora (using first 2 images + custom size)
+            state = await self.generate_video_with_sora(state)
+            
+            if state.get("error"):
+                print(f"[{initial_state['video_id']}] Workflow failed: {state['error']}")
             else:
-                print(f"[{initial_state['video_id']}] Workflow completed successfully!")
+                print(f"[{initial_state['video_id']}] ✅ Complete workflow finished!")
             
-            return result
+            return state
+            
         except Exception as e:
-            print(f"[{initial_state['video_id']}] Workflow error: {str(e)}")
-            initial_state["error"] = str(e)
+            error_msg = str(e)
+            print(f"[{initial_state['video_id']}] ❌ Workflow error: {error_msg}")
+            initial_state["error"] = error_msg
+            initial_state["current_step"] = "failed"
             return initial_state

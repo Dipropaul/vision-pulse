@@ -7,6 +7,8 @@ class VideoCreateRequest(BaseModel):
     script: str = Field(..., description="Script text for the video")
     style: str = Field(..., description="Visual style (e.g., 'cinematic', 'anime')")
     voice: str = Field(..., description="Narration voice (e.g., 'alloy', 'echo')")
+    size: Optional[str] = Field(default="1280x720", description="Video resolution (e.g., '1280x720', '720x1280')")
+    duration: Optional[int] = Field(default=8, description="Video duration in seconds (4, 8, or 12)")
     keywords: Optional[List[str]] = Field(default=[], description="Keywords to include")
     negative_keywords: Optional[List[str]] = Field(default=[], description="Keywords to avoid")
 
