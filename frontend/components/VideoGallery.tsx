@@ -1,7 +1,7 @@
 'use client';
 
 import { Video, videoApi } from '@/lib/api';
-import { Download, Trash2, Clock, CheckCircle, XCircle, Loader } from 'lucide-react';
+import { Download, Trash2, Clock, CheckCircle, XCircle, Loader, RefreshCw } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 interface VideoGalleryProps {
@@ -18,6 +18,18 @@ export default function VideoGallery({ videos, onUpdate }: VideoGalleryProps) {
       } catch (error) {
         console.error('Failed to delete video:', error);
         alert('Failed to delete video');
+      }
+    }
+  };
+
+  const handleRegenerate = async (id: string) => {
+    if (confirm('Regenerate this video with the same settings?')) {
+      try {
+        await videoApi.regenerateVideo(id);
+        onUpdate();
+      } catch (error) {
+        console.error('Failed to regenerate video:', error);
+        alert('Failed to regenerate video');
       }
     }
   };
@@ -147,6 +159,13 @@ export default function VideoGallery({ videos, onUpdate }: VideoGalleryProps) {
                   Download
                 </button>
               )}
+              <button
+                onClick={() => handleRegenerate(video.id)}
+                className="flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
+                title="Regenerate with same settings"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
               <button
                 onClick={() => handleDelete(video.id)}
                 className="flex items-center justify-center gap-2 px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition-colors"

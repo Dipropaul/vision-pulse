@@ -161,6 +161,46 @@ async def list_voices():
         for key, value in NARRATION_VOICES.items()
     ]
 
+@router.post("/videos/{video_id}/regenerate", response_model=VideoResponse)
+async def regenerate_video(
+    video_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Regenerate a video with the same details as an existing video"""
+    
+    # Get the original video
+    original_video = db.query(Video).filter(Video.id == video_id).first()
+    if not original_video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    # Create a new video record with the same details
+    new_video = Video(
+        id=str(uuid.uuid4()),
+        title=f"{original_video.title} (Regenerated)",
+        script=original_video.script,
+        style=original_video.style,
+        voice=original_video.voice,
+        keywords=original_video.keywords,
+        negative_keywords=original_video.negative_keywords,
+        status="pending"
+    )
+    
+    db.add(new_video)
+    db.commit()
+    db.refresh(new_video)
+    
+    # Start background processing with the same parameters
+    import asyncio
+    asyncio.create_task(process_video_generation(
+        new_video.id,
+        "1280x720",  # Use the same size as original or default
+        original_video.duration or 8,  # Use the same duration as original or default
+        db
+    ))
+    
+    return VideoResponse(**new_video.to_dict())
+
 @router.delete("/videos/{video_id}")
 async def delete_video(video_id: str, db: Session = Depends(get_db)):
     """Delete a video"""

@@ -243,6 +243,18 @@ export default function CreateVideoModal({ onClose, onSuccess }: CreateVideoModa
                 <option value="4">4 seconds</option>
                 <option value="8">8 seconds</option>
                 <option value="12">12 seconds</option>
+                <option value="16">16 seconds</option>
+                <option value="20">20 seconds</option>
+                <option value="24">24 seconds</option>
+                <option value="28">28 seconds</option>
+                <option value="32">32 seconds</option>
+                <option value="36">36 seconds</option>
+                <option value="40">40 seconds</option>
+                <option value="44">44 seconds</option>
+                <option value="48">48 seconds</option>
+                <option value="52">52 seconds</option>
+                <option value="56">56 seconds</option>
+                <option value="60">60 seconds</option>
               </select>
             </div>
           </div>
